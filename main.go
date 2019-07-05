@@ -9,6 +9,10 @@ import (
 	"strings"
 )
 
+// EXIT STATUS LIST
+const errRegex = 10
+const errReadFile = 20
+
 type semVerFile struct {
 	name  string
 	regex string
@@ -21,10 +25,11 @@ type semVerFile struct {
 // 1B. overwrite it in file
 
 // 2R-UV: UPDATE Maj-Min-Patch
-// 1. Read version file. Get a slice []string [maj, min, patch]
-// 2. Create an updateMaj func: increment slice[0] and update file
-// 3. Create an updateMin func: increment slice[1] and update file
-// 4. Create an updatePatch func: increment slice[2] and update file
+// 1. Read git tag. Get a slice []string [maj, min, patch]
+// 2. Write it to version file
+// 3. Create an updateMaj func: increment slice[0] and update file
+// 4. Create an updateMin func: increment slice[1] and update file
+// 5. Create an updatePatch func: increment slice[2] and update file
 
 func main() {
 	inFile := semVerFile{
@@ -36,21 +41,25 @@ func main() {
 	var semVerB []byte = inFile.genGitTag()
 	inFile.writeSemVer(semVerB)
 
-	/* 	// 2R-UV
-	   	var fileContent []byte = inFile.readCurSemVer()
-	   	var stringContent = string(fileContent)
+	// 2R-UV [WIP]
+	var fileContent []byte = inFile.readCurSemVer()
+	var stringContent = string(fileContent)
 
-	   	var sliceContent = strings.Split(stringContent, ".")
-	   	fmt.Println(sliceContent) */
+	var sliceContent = strings.Split(stringContent, ".")
 
+	var major string = strings.TrimSpace(sliceContent[1])
+	var minor string = strings.TrimSpace(sliceContent[2])
+	var patch string = strings.TrimSpace(sliceContent[3])
+
+	// Now reading only. Next steps are to increment programmatically
+	fmt.Printf("Semver level - Major: %v; Minor: %v; Patch: %v\n", major, minor, patch)
 }
 
 func (inFile semVerFile) isSemVer(inString string) bool {
 	matched, err := regexp.Match(inFile.regex, []byte(inString))
 
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		os.Exit(errRegex)
 	}
 
 	return matched
@@ -72,7 +81,7 @@ func (inFile semVerFile) readCurSemVer() []byte {
 
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(2)
+		os.Exit(errReadFile)
 	}
 
 	return data
@@ -85,10 +94,10 @@ func (inFile *semVerFile) assignSemVer() {
 }
 
 func (inFile semVerFile) genGitTag() []byte {
-	cmd := exec.Command("git", "describe --tags")
+	cmd := exec.Command("git", "describe", "--tags")
 
 	out, err := cmd.Output()
-	fmt.Println(out)
+
 	if err != nil {
 		fmt.Println(err)
 	}
