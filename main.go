@@ -6,18 +6,25 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 // EXIT STATUS LIST
 const errRegex = 10
 const errReadFile = 20
+const errInArgs = 30
+const errFileNotExists = 50
 
 type semVerFile struct {
 	name  string
 	regex string
 	value []byte
 }
+
+var fileToWritePath string
+var semVerRegex = `^v\.[0-9]+\.[0-9]+\.[0-9]+`
+var usageString = fmt.Sprintf("USAGE: %v <file_to_write> <action>", os.Args[0])
 
 // 1R-GV: GEN VERSION
 // 1. launch bin: get git tag and write it to file
@@ -32,31 +39,145 @@ type semVerFile struct {
 // 5. Create an updatePatch func: increment slice[2] and update file
 
 func main() {
-	inFile := semVerFile{
-		name:  "./build_version.html",
-		regex: `^v\.[0-9]+\.[0-9]+\.[0-9]+`,
+	// STEP 1 - parameters check
+	parseArgs()
+}
+
+func parseArgs() {
+	// CLI argument is the file to write
+	if len(os.Args) != 3 {
+		fmt.Println(usageString)
+		os.Exit(errInArgs)
 	}
 
+	if !fileExists(os.Args[1]) {
+		fmt.Println("file path is not correct...")
+		os.Exit(errFileNotExists)
+	} else {
+		fileToWritePath = os.Args[1]
+		fmt.Println("writing semver to...", fileToWritePath)
+	}
+
+	inFile := semVerFile{
+		name:  fileToWritePath,
+		regex: semVerRegex,
+	}
+
+	switch os.Args[2] {
+	case "update":
+		fmt.Println("updating...")
+		inFile.updateFile()
+
+	case "major":
+		fmt.Println("#TODO major...")
+
+	case "minor":
+		fmt.Println("#TODO minor...")
+
+	case "patch":
+		fmt.Println("#TODO patch...")
+
+	default:
+		fmt.Println(usageString)
+		os.Exit(errInArgs)
+	}
+}
+
+func fileExists(pathToFile string) bool {
+	if _, err := os.Stat(pathToFile); os.IsNotExist(err) {
+		return false
+	}
+
+	return true
+}
+
+func newMajor(inVersion []string) []string {
+	actualMaj, err := strconv.Atoi(inVersion[0])
+
+	if err != nil {
+		fmt.Println("error in newMajor", err)
+	}
+
+	return []string{string(actualMaj + 1), "0", "0"}
+}
+
+func newMinor(inVersion []string) []string {
+	actualMin, err := strconv.Atoi(inVersion[1])
+
+	if err != nil {
+		fmt.Println("error in newMinor", err)
+	}
+
+	return []string{inVersion[0], string(actualMin + 1), "0"}
+}
+
+func newPatch(inVersion []string) []string {
+	actualPatch, err := strconv.Atoi(inVersion[2])
+
+	if err != nil {
+		fmt.Println("error in newPatch", err)
+	}
+
+	return []string{inVersion[0], inVersion[1], string(actualPatch + 1)}
+}
+
+func (inFile semVerFile) updateGitTag() bool {
+	var semVerVal string = string(inFile.genGitTag())
+
+	cmd := exec.Command("git", "tag", "-a", semVerVal, "-m", "auto updated")
+	err := cmd.Run()
+
+	if err != nil {
+		fmt.Println(err)
+		return false
+	}
+
+	return true
+}
+
+func (inFile semVerFile) updateFile() {
+	// STEP 2 - READING GIT DATA
 	// 1R-GV
 	var semVerB []byte = inFile.genGitTag()
+
+	// git tag must be in the *standard* format
+	if !inFile.isSemVer(semVerB) {
+		os.Exit(errRegex)
+	}
+
+	// STEP 3 - WRITING DATA TO FILE
+	// write git tag we read -> to file
 	inFile.writeSemVer(semVerB)
 
 	// 2R-UV [WIP]
+	// read file content
 	var fileContent []byte = inFile.readCurSemVer()
-	var stringContent = string(fileContent)
 
+	// check file content
+	if !inFile.isSemVer(fileContent) {
+		os.Exit(errRegex)
+	}
+
+	var result []string = getSemVerSplit(fileContent)
+
+	// Now reading only. Next steps are to increment programmatically
+	fmt.Printf("Semver level - Major: %v; Minor: %v; Patch: %v\n", result[0], result[1], result[2])
+}
+
+func getSemVerSplit(inVersion []byte) []string {
+	// get file content to slice
+	var stringContent = string(inVersion)
 	var sliceContent = strings.Split(stringContent, ".")
 
 	var major string = strings.TrimSpace(sliceContent[1])
 	var minor string = strings.TrimSpace(sliceContent[2])
 	var patch string = strings.TrimSpace(sliceContent[3])
 
-	// Now reading only. Next steps are to increment programmatically
-	fmt.Printf("Semver level - Major: %v; Minor: %v; Patch: %v\n", major, minor, patch)
+	return []string{major, minor, patch}
 }
 
-func (inFile semVerFile) isSemVer(inString string) bool {
-	matched, err := regexp.Match(inFile.regex, []byte(inString))
+func (inFile semVerFile) isSemVer(inString []byte) bool {
+	matched, err := regexp.Match(inFile.regex, inString)
 
 	if err != nil {
 		os.Exit(errRegex)
@@ -69,7 +190,6 @@ func (inFile semVerFile) getLabels() []string {
 	retSlice := strings.Split(string(inFile.value), ".")
 
 	return retSlice
-
 }
 
 func (inFile semVerFile) writeSemVer(fileContent []byte) {
